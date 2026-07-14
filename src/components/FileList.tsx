@@ -13,7 +13,8 @@ import {
   List,
   CheckSquare,
   Square,
-  FolderDot
+  FolderDot,
+  Link2
 } from 'lucide-react';
 import { FileItem, ClipboardState } from '../types';
 import { formatBytes, getFileIcon, getFileTypeCategory, formatDate } from '../utils';
@@ -32,6 +33,7 @@ interface FileListProps {
   onCut: (file: FileItem) => void;
   clipboard: ClipboardState;
   onPaste: () => void;
+  showNotification?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export default function FileList({
@@ -47,9 +49,31 @@ export default function FileList({
   onCopy,
   onCut,
   clipboard,
-  onPaste
+  onPaste,
+  showNotification
 }: FileListProps) {
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+
+  const handleCopyLink = (file: FileItem) => {
+    const origin = window.location.origin.includes('localhost') || window.location.origin.includes('run.app')
+      ? 'https://asdev.pro.bd'
+      : window.location.origin;
+    const link = `${origin}/api/download?path=${encodeURIComponent(file.path)}`;
+    
+    navigator.clipboard.writeText(link)
+      .then(() => {
+        if (showNotification) {
+          showNotification('ডাউনলোড লিংক কপি করা হয়েছে!', 'success');
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to copy link:', err);
+        if (showNotification) {
+          showNotification('লিংক কপি করতে ব্যর্থ হয়েছে!', 'error');
+        }
+      });
+    setActiveMenuId(null);
+  };
 
   const toggleSelectAll = () => {
     if (selectedItems.length === files.length) {
@@ -239,15 +263,24 @@ export default function FileList({
                           <span>কাট (Cut)</span>
                         </button>
                         {file.type === 'file' && (
-                          <a
-                            href={`/api/download?path=${encodeURIComponent(file.path)}`}
-                            download
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-full px-3 py-2 hover:bg-slate-50 hover:text-blue-600 flex items-center gap-2"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            <span>ডাউনলোড</span>
-                          </a>
+                          <>
+                            <a
+                              href={`/api/download?path=${encodeURIComponent(file.path)}`}
+                              download
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-full px-3 py-2 hover:bg-slate-50 hover:text-blue-600 flex items-center gap-2"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>ডাউনলোড</span>
+                            </a>
+                            <button
+                              onClick={() => handleCopyLink(file)}
+                              className="w-full px-3 py-2 hover:bg-slate-50 hover:text-blue-600 flex items-center gap-2"
+                            >
+                              <Link2 className="w-3.5 h-3.5" />
+                              <span>কপি লিঙ্ক</span>
+                            </button>
+                          </>
                         )}
                         <hr className="my-1 border-slate-100" />
                         <button
@@ -414,14 +447,23 @@ export default function FileList({
                               <span>কাট (Cut)</span>
                             </button>
                             {file.type === 'file' && (
-                              <a
-                                href={`/api/download?path=${encodeURIComponent(file.path)}`}
-                                download
-                                className="w-full px-3 py-2 hover:bg-slate-50 hover:text-blue-600 flex items-center gap-2"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                                <span>ডাউনলোড</span>
-                              </a>
+                              <>
+                                <a
+                                  href={`/api/download?path=${encodeURIComponent(file.path)}`}
+                                  download
+                                  className="w-full px-3 py-2 hover:bg-slate-50 hover:text-blue-600 flex items-center gap-2"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  <span>ডাউনলোড</span>
+                                </a>
+                                <button
+                                  onClick={() => handleCopyLink(file)}
+                                  className="w-full px-3 py-2 hover:bg-slate-50 hover:text-blue-600 flex items-center gap-2"
+                                >
+                                  <Link2 className="w-3.5 h-3.5" />
+                                  <span>কপি লিঙ্ক</span>
+                                </button>
+                              </>
                             )}
                             <hr className="my-1 border-slate-100" />
                             <button

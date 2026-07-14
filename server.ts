@@ -124,10 +124,62 @@ async function startServer() {
   await seedInitialData();
 
   const app = express();
-  const PORT = 10000;
+  const PORT = 3000;
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // --- AUTHENTICATION MODULE ---
+  const AUTH_TOKEN = 'ahnaf_secure_session_token_2026_07';
+
+  // Public endpoint to login
+  app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+    if (username === 'ahnafsaikat08' && password === '280323') {
+      return res.json({ success: true, token: AUTH_TOKEN });
+    }
+    return res.status(401).json({ error: 'ভুল ইউজারনেম অথবা পাসওয়ার্ড!' });
+  });
+
+  // Auth check middleware for all other /api/* routes
+  app.use('/api', (req, res, next) => {
+    if (req.path === '/login' || req.path === '/download' || req.path === '/view') {
+      return next();
+    }
+
+    // Check header
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader === `Bearer ${AUTH_TOKEN}`) {
+      return next();
+    }
+
+    // Check query token
+    const queryToken = req.query.token as string;
+    if (queryToken && queryToken === AUTH_TOKEN) {
+      return next();
+    }
+
+    // Check cookies
+    const cookieHeader = req.headers.cookie;
+    if (cookieHeader) {
+      const cookies = Object.fromEntries(
+        cookieHeader.split(';').map(c => {
+          const parts = c.trim().split('=');
+          return [parts[0], parts.slice(1).join('=')];
+        })
+      );
+      if (cookies.token === AUTH_TOKEN) {
+        return next();
+      }
+    }
+
+    return res.status(401).json({ error: 'অননুমোদিত অ্যাক্সেস! অনুগ্রহ করে লগইন করুন।' });
+  });
+
+  // Verification endpoint
+  app.get('/api/verify', (req, res) => {
+    res.json({ valid: true });
+  });
 
   // Configure multer memory storage
   const storage = multer.memoryStorage();
@@ -307,6 +359,99 @@ async function startServer() {
     }
   });
 
+  // 4b. Upload from URL Link
+  app.post('/api/upload-url', async (req, res) => {
+    try {
+      const { parentPath, url } = req.body;
+      if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+        return res.status(400).json({ error: 'অবৈধ লিঙ্ক প্রদান করা হয়েছে!' });
+      }
+
+      const { absolutePath, isValid } = resolveAndSanitizePath(parentPath || '');
+      if (!isValid) {
+        return res.status(400).json({ error: 'অবৈধ ডিরেক্টরি পাথ!' });
+      }
+
+      if (!fs.existsSync(absolutePath)) {
+        await fs.promises.mkdir(absolutePath, { recursive: true });
+      }
+
+      // Fetch the URL
+      const response = await fetch(url);
+      if (!response.ok) {
+        return res.status(400).json({ error: `লিঙ্ক থেকে ফাইল ডাউনলোড করতে ব্যর্থ! স্ট্যাটাস কোড: ${response.status}` });
+      }
+
+      // Extract filename
+      let filename = '';
+      const contentDisposition = response.headers.get('content-disposition');
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename\*?=(?:UTF-8'')?"?([^";\n]+)"?/i);
+        if (match && match[1]) {
+          filename = decodeURIComponent(match[1]);
+        } else {
+          const matchSimple = contentDisposition.match(/filename="?([^";\n]+)"?/i);
+          if (matchSimple && matchSimple[1]) {
+            filename = matchSimple[1];
+          }
+        }
+      }
+
+      if (!filename) {
+        try {
+          const urlObj = new URL(url);
+          filename = path.basename(urlObj.pathname);
+        } catch (e) {}
+      }
+
+      filename = filename ? filename.trim() : '';
+      filename = filename.split('?')[0].split('#')[0];
+
+      if (!filename) {
+        filename = 'downloaded_file';
+        const contentType = response.headers.get('content-type');
+        if (contentType) {
+          const mimeMap: { [key: string]: string } = {
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/gif': '.gif',
+            'image/webp': '.webp',
+            'application/pdf': '.pdf',
+            'audio/mpeg': '.mp3',
+            'video/mp4': '.mp4',
+            'application/zip': '.zip',
+            'text/plain': '.txt',
+            'text/html': '.html',
+            'application/json': '.json'
+          };
+          const ext = mimeMap[contentType.split(';')[0].trim().toLowerCase()];
+          if (ext) {
+            filename += ext;
+          }
+        }
+      }
+
+      const safeName = filename.replace(/[/\\?%*:|"<>\x00-\x1F]/g, '_').trim();
+      const destFilePath = path.join(absolutePath, safeName);
+
+      // Save the file
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      await fs.promises.writeFile(destFilePath, buffer);
+
+      res.json({ 
+        success: true, 
+        message: 'লিঙ্ক থেকে ফাইল সফলভাবে আপলোড হয়েছে!', 
+        file: {
+          name: safeName,
+          size: buffer.length
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // 5. Delete Files/Folders (Supports multiple deletions)
   app.post('/api/delete', async (req, res) => {
     try {
@@ -341,20 +486,10 @@ async function startServer() {
         return res.status(400).json({ error: 'মূল ফাইল বা ফোল্ডারটি খুঁজে পাওয়া যায়নি!' });
       }
 
-      const isDirectory = fs.statSync(srcAbsolutePath).isDirectory();
-
       // Safe clean name (allows dots)
       const safeNewName = newName.replace(/[/\\?%*:|"<>]/g, '_').trim();
       const parentDir = path.dirname(srcAbsolutePath);
-      
-      let finalNewName = safeNewName;
-      if (!isDirectory) {
-        const ext = path.extname(srcAbsolutePath);
-        if (ext && !safeNewName.endsWith(ext)) {
-          finalNewName = `${safeNewName}${ext}`;
-        }
-      }
-      const destAbsolutePath = path.join(parentDir, finalNewName);
+      const destAbsolutePath = path.join(parentDir, safeNewName);
 
       if (fs.existsSync(destAbsolutePath)) {
         return res.status(400).json({ error: 'এই নামের ফাইল বা ফোল্ডার ইতিমধ্যেই বিদ্যমান আছে!' });

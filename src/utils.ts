@@ -89,3 +89,18 @@ export function formatDate(dateString: string): string {
     return dateString;
   }
 }
+
+// Custom authenticated fetch helper to avoid rewriting read-only window.fetch
+export async function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const token = localStorage.getItem('ahnaf_auth_token');
+  const actualInit = { ...init };
+  const headers = new Headers(actualInit.headers || {});
+  
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  
+  actualInit.headers = headers;
+  return fetch(input, actualInit);
+}
+

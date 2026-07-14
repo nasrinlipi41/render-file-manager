@@ -11,7 +11,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { FileItem } from '../types';
-import { formatBytes, getFileTypeCategory, formatDate } from '../utils';
+import { formatBytes, getFileTypeCategory, formatDate, authFetch } from '../utils';
 
 interface FilePreviewModalProps {
   file: FileItem | null;
@@ -23,6 +23,7 @@ export default function FilePreviewModal({ file, onClose, onRefresh }: FilePrevi
   if (!file) return null;
 
   const category = getFileTypeCategory(file.name);
+  const token = localStorage.getItem('ahnaf_auth_token') || '';
   const [textContent, setTextContent] = useState<string>('');
   const [loadingText, setLoadingText] = useState<boolean>(false);
   const [editing, setEditing] = useState<boolean>(false);
@@ -40,7 +41,7 @@ export default function FilePreviewModal({ file, onClose, onRefresh }: FilePrevi
         setLoadingText(true);
         setEditing(false);
         setSaveStatus('idle');
-        fetch(`/api/file-content?path=${encodeURIComponent(file.path)}`)
+        authFetch(`/api/file-content?path=${encodeURIComponent(file.path)}`)
           .then(res => {
             if (!res.ok) throw new Error('ফাইল কনটেন্ট পড়তে ব্যর্থ হয়েছে!');
             return res.json();
@@ -61,7 +62,7 @@ export default function FilePreviewModal({ file, onClose, onRefresh }: FilePrevi
   const handleSaveText = async () => {
     setSaveStatus('saving');
     try {
-      const response = await fetch('/api/save-content', {
+      const response = await authFetch('/api/save-content', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

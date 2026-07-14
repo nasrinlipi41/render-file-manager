@@ -36,6 +36,8 @@ export default function UploadProgressPanel({
   const activeUploads = uploadQueue.filter(f => f.status === 'uploading').length;
   const completedUploads = uploadQueue.filter(f => f.status === 'completed').length;
   const failedOrCancelled = uploadQueue.filter(f => f.status === 'error' || f.status === 'cancelled').length;
+  const cancelledCount = uploadQueue.filter(f => f.status === 'cancelled').length;
+  const errorCount = uploadQueue.filter(f => f.status === 'error').length;
   
   // Total progress percentage (weighted by size or simple average of individual progress)
   const totalSize = uploadQueue.reduce((acc, f) => acc + f.size, 0);
@@ -44,21 +46,40 @@ export default function UploadProgressPanel({
 
   const isAllDone = activeUploads === 0;
 
+  // Determine dynamic header icon and title
+  let headerIcon = <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />;
+  let headerTitle = "ফাইল আপলোড হচ্ছে...";
+
+  if (isAllDone) {
+    if (completedUploads === totalFiles) {
+      headerIcon = <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
+      headerTitle = "আপলোড সম্পন্ন হয়েছে";
+    } else if (completedUploads > 0) {
+      headerIcon = <CheckCircle2 className="w-4 h-4 text-amber-400" />;
+      headerTitle = "আপলোড আংশিক সম্পন্ন হয়েছে";
+    } else if (cancelledCount > 0) {
+      headerIcon = <Ban className="w-4 h-4 text-slate-400" />;
+      headerTitle = "আপলোড বাতিল করা হয়েছে";
+    } else if (errorCount > 0) {
+      headerIcon = <AlertCircle className="w-4 h-4 text-rose-400" />;
+      headerTitle = "আপলোড ব্যর্থ হয়েছে";
+    } else {
+      headerIcon = <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
+      headerTitle = "আপলোড সম্পন্ন হয়েছে";
+    }
+  }
+
   return (
     <div className="fixed bottom-6 right-6 z-40 w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-150 overflow-hidden animate-slideIn">
       {/* Header */}
       <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="p-1.5 bg-white/10 rounded-lg">
-            {isAllDone ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            ) : (
-              <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
-            )}
+            {headerIcon}
           </div>
           <div className="leading-tight">
             <h4 className="text-xs font-bold font-sans">
-              {isAllDone ? 'আপলোড সম্পন্ন হয়েছে' : 'ফাইল আপলোড হচ্ছে...'}
+              {headerTitle}
             </h4>
             <p className="text-[10px] text-slate-300 font-medium">
               {completedUploads} / {totalFiles} টি সফল | {overallProgress}% সম্পূর্ণ
@@ -197,14 +218,7 @@ export default function UploadProgressPanel({
           <div>
             <span>মোট আকার: {formatBytes(totalSize)}</span>
           </div>
-          {activeUploads > 0 ? (
-            <button
-              onClick={onCancelAll}
-              className="px-2.5 py-1 text-rose-600 hover:text-white bg-white hover:bg-rose-600 border border-rose-200 hover:border-rose-600 rounded-lg transition-all"
-            >
-              সব বাতিল করুন
-            </button>
-          ) : (
+          {activeUploads === 0 && (
             <button
               onClick={onClearQueue}
               className="px-2.5 py-1 text-slate-600 hover:text-slate-800 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-all"

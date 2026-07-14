@@ -8,11 +8,15 @@ import {
   CheckCircle2, 
   AlertTriangle, 
   X,
-  Plus
+  Plus,
+  LogOut,
+  ChevronDown,
+  Link2,
+  Globe
 } from 'lucide-react';
 
 import { FileItem, StorageStats, ClipboardState, UploadingFile } from './types';
-import { getFileTypeCategory } from './utils';
+import { getFileTypeCategory, authFetch } from './utils';
 
 import Sidebar from './components/Sidebar';
 import Breadcrumbs from './components/Breadcrumbs';
@@ -23,8 +27,13 @@ import RenameModal from './components/RenameModal';
 import FilePreviewModal from './components/FilePreviewModal';
 import DeleteConfirmModal from './components/DeleteConfirmModal';
 import UploadProgressPanel from './components/UploadProgressPanel';
+import LoginScreen from './components/LoginScreen';
+import LinkUploadModal from './components/LinkUploadModal';
 
 export default function App() {
+  // Authentication State
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
   // Navigation & File States
   const [currentPath, setCurrentPath] = useState<string>('');
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -46,6 +55,10 @@ export default function App() {
   const [uploadQueue, setUploadQueue] = useState<UploadingFile[]>([]);
   const uploading = uploadQueue.some((item) => item.status === 'uploading');
   const activeXhrsRef = useRef<{ [key: string]: XMLHttpRequest }>({});
+  const activeAbortControllersRef = useRef<{ [key: string]: AbortController }>({});
+
+  const [showUploadMenu, setShowUploadMenu] = useState<boolean>(false);
+  const [showLinkUploadModal, setShowLinkUploadModal] = useState<boolean>(false);
 
   const [dragOver, setDragOver] = useState<boolean>(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState<boolean>(false);
@@ -70,7 +83,7 @@ export default function App() {
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/files?path=${encodeURIComponent(currentPath)}`);
+      const response = await authFetch(`/api/files?path=${encodeURIComponent(currentPath)}`);
       if (!response.ok) {
         throw new Error('ফাইলগুলো লোড করতে ব্যর্থ হয়েছে!');
       }
@@ -88,7 +101,7 @@ export default function App() {
   // 2. Fetch Storage statistics
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/stats');
+      const response = await authFetch('/api/stats');
       if (response.ok) {
         const data = await response.json();
         setStats(data);
@@ -98,11 +111,37 @@ export default function App() {
     }
   };
 
-  // Run fetches on load or when currentPath changes
+  // Session check on mount
   useEffect(() => {
-    fetchFiles();
-    fetchStats();
-  }, [currentPath]);
+    const token = localStorage.getItem('ahnaf_auth_token');
+    if (!token) {
+      setIsAuthenticated(false);
+      return;
+    }
+
+    // Verify token with server
+    authFetch('/api/verify')
+      .then((res) => {
+        if (res.ok) {
+          setIsAuthenticated(true);
+        } else {
+          localStorage.removeItem('ahnaf_auth_token');
+          setIsAuthenticated(false);
+        }
+      })
+      .catch(() => {
+        // Safe offline fallback
+        setIsAuthenticated(true);
+      });
+  }, []);
+
+  // Run fetches on load or when currentPath changes (Gated by Authentication)
+  useEffect(() => {
+    if (isAuthenticated === true) {
+      fetchFiles();
+      fetchStats();
+    }
+  }, [currentPath, isAuthenticated]);
 
   // 3. Handle File Uploads (Granular Parallel Upload Queue with Progress & Cancel)
   const handleUploadFiles = (selectedFiles: FileList | null) => {
@@ -202,6 +241,10 @@ export default function App() {
       };
 
       xhr.open('POST', '/api/upload');
+      const token = localStorage.getItem('ahnaf_auth_token');
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      }
       xhr.send(formData);
     });
 
@@ -213,6 +256,10 @@ export default function App() {
     if (xhr) {
       xhr.abort();
     }
+    const controller = activeAbortControllersRef.current[id];
+    if (controller) {
+      controller.abort();
+    }
   };
 
   const handleCancelAllUploads = () => {
@@ -223,7 +270,135 @@ export default function App() {
       }
     });
     activeXhrsRef.current = {};
+
+    Object.keys(activeAbortControllersRef.current).forEach((id) => {
+      const controller = activeAbortControllersRef.current[id];
+      if (controller) {
+        controller.abort();
+      }
+    });
+    activeAbortControllersRef.current = {};
+
     showNotification('সব ফাইল আপলোড বাতিল করা হয়েছে', 'info');
+  };
+
+  const handleUploadFromUrl = async (url: string) => {
+    if (!url || !url.trim().startsWith('http')) {
+      showNotification('অবৈধ লিঙ্ক প্রদান করা হয়েছে!', 'error');
+      return;
+    }
+
+    const targetPath = currentPath;
+    const id = `url-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+    let extractedName = 'ফাইল ডাউনলোড...';
+    try {
+      const urlObj = new URL(url);
+      const base = urlObj.pathname.split('/').pop();
+      if (base) {
+        extractedName = decodeURIComponent(base).split('?')[0].split('#')[0];
+      }
+    } catch (e) {}
+    if (!extractedName) extractedName = 'ফাইল ডাউনলোড';
+
+    const newItem: UploadingFile = {
+      id,
+      name: extractedName,
+      size: 0,
+      progress: 5,
+      status: 'uploading'
+    };
+
+    setUploadQueue((prev) => [...prev, newItem]);
+
+    // Set up interval for progress animation to look natural
+    const progressInterval = setInterval(() => {
+      setUploadQueue((prev) =>
+        prev.map((item) => {
+          if (item.id === id && item.status === 'uploading') {
+            const increment = Math.floor(Math.random() * 6) + 2;
+            const nextProgress = Math.min(item.progress + increment, 92);
+            return { ...item, progress: nextProgress };
+          }
+          return item;
+        })
+      );
+    }, 600);
+
+    const controller = new AbortController();
+    activeAbortControllersRef.current[id] = controller;
+
+    try {
+      const token = localStorage.getItem('ahnaf_auth_token');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch('/api/upload-url', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ parentPath: targetPath, url }),
+        signal: controller.signal
+      });
+
+      clearInterval(progressInterval);
+      delete activeAbortControllersRef.current[id];
+
+      if (response.ok) {
+        const data = await response.json();
+        setUploadQueue((prev) =>
+          prev.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  name: data.file.name,
+                  size: data.file.size,
+                  progress: 100,
+                  status: 'completed'
+                }
+              : item
+          )
+        );
+        showNotification(`"${data.file.name}" লিঙ্ক থেকে সফলভাবে ডাউনলোড হয়েছে!`, 'success');
+        fetchFiles();
+        fetchStats();
+      } else {
+        let errorMsg = 'ডাউনলোড ব্যর্থ হয়েছে';
+        try {
+          const data = await response.json();
+          errorMsg = data.error || errorMsg;
+        } catch (e) {}
+        
+        setUploadQueue((prev) =>
+          prev.map((item) =>
+            item.id === id ? { ...item, status: 'error', error: errorMsg } : item
+          )
+        );
+        showNotification(`ত্রুটি: ${errorMsg}`, 'error');
+      }
+    } catch (err: any) {
+      clearInterval(progressInterval);
+      delete activeAbortControllersRef.current[id];
+
+      if (err.name === 'AbortError') {
+        setUploadQueue((prev) =>
+          prev.map((item) =>
+            item.id === id ? { ...item, status: 'cancelled', progress: 0 } : item
+          )
+        );
+        showNotification('ডাউনলোড বাতিল করা হয়েছে', 'info');
+      } else {
+        setUploadQueue((prev) =>
+          prev.map((item) =>
+            item.id === id ? { ...item, status: 'error', error: err.message || 'ডাউনলোড ব্যর্থ হয়েছে' } : item
+          )
+        );
+        showNotification(`ত্রুটি: ${err.message || 'ডাউনলোড ব্যর্থ হয়েছে'}`, 'error');
+      }
+    }
   };
 
   const handleClearUploadQueue = () => {
@@ -257,7 +432,7 @@ export default function App() {
   // 4. Create New Folder
   const handleCreateFolder = async (folderName: string) => {
     try {
-      const response = await fetch('/api/folder', {
+      const response = await authFetch('/api/folder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -284,7 +459,7 @@ export default function App() {
     if (!activeRenameFile) return;
 
     try {
-      const response = await fetch('/api/rename', {
+      const response = await authFetch('/api/rename', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -308,7 +483,7 @@ export default function App() {
   // 6. Delete Selected Items (Used for individual & bulk deletions)
   const handleDeleteItems = async (itemsToDelete: FileItem[]) => {
     try {
-      const response = await fetch('/api/delete', {
+      const response = await authFetch('/api/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -357,7 +532,7 @@ export default function App() {
 
     setLoading(true);
     try {
-      const response = await fetch('/api/paste', {
+      const response = await authFetch('/api/paste', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -383,6 +558,12 @@ export default function App() {
     }
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('ahnaf_auth_token');
+    setIsAuthenticated(false);
+    showNotification('সফলভাবে লগআউট করা হয়েছে!', 'info');
+  };
+
   // Filter and Search Computation
   const filteredFiles = files.filter(file => {
     const matchesSearch = file.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -399,6 +580,21 @@ export default function App() {
 
     return true;
   });
+
+  // Render loading state while checking authentication
+  if (isAuthenticated === null) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-2 animate-pulse" />
+        <p className="text-xs text-slate-500 font-bold">লোড করা হচ্ছে...</p>
+      </div>
+    );
+  }
+
+  // Render Login screen if not authenticated
+  if (isAuthenticated === false) {
+    return <LoginScreen onLoginSuccess={() => setIsAuthenticated(true)} />;
+  }
 
   return (
     <div 
@@ -484,19 +680,64 @@ export default function App() {
             <span className="hidden sm:inline">নতুন ফোল্ডার</span>
           </button>
 
-          {/* Upload Button */}
-          <button
-            onClick={triggerFileBrowser}
-            disabled={uploading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-100 hover:shadow-lg disabled:opacity-50"
-            title="Upload files"
-          >
-            {uploading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <UploadCloud className="w-4 h-4" />
+          {/* Upload Button with Options Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowUploadMenu(!showUploadMenu)}
+              disabled={uploading}
+              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-100 hover:shadow-lg disabled:opacity-50"
+              title="Upload files"
+            >
+              {uploading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <UploadCloud className="w-4 h-4" />
+              )}
+              <span>{uploading ? 'আপলোড হচ্ছে...' : 'ফাইল আপলোড'}</span>
+              <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+            </button>
+
+            {showUploadMenu && (
+              <>
+                <div 
+                  className="fixed inset-0 z-10" 
+                  onClick={() => setShowUploadMenu(false)}
+                />
+                <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-150 rounded-xl shadow-xl py-1.5 z-20 animate-fadeIn">
+                  <button
+                    onClick={() => {
+                      setShowUploadMenu(false);
+                      triggerFileBrowser();
+                    }}
+                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <UploadCloud className="w-4 h-4 text-slate-500" />
+                    ডিভাইস থেকে আপলোড
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowUploadMenu(false);
+                      setShowLinkUploadModal(true);
+                    }}
+                    className="w-full px-4 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors border-t border-slate-100 cursor-pointer"
+                  >
+                    <Link2 className="w-4 h-4 text-slate-500" />
+                    লিঙ্ক থেকে আপলোড
+                  </button>
+                </div>
+              </>
             )}
-            <span>{uploading ? 'আপলোড হচ্ছে...' : 'ফাইল আপলোড'}</span>
+          </div>
+
+          {/* Logout Button */}
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-100 text-rose-600 rounded-xl text-xs font-bold transition-all shadow-xs"
+            title="Log out"
+            id="logout_btn"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">লগআউট</span>
           </button>
         </div>
       </header>
@@ -559,6 +800,7 @@ export default function App() {
             onCut={handleCutSingle}
             clipboard={clipboard}
             onPaste={handlePaste}
+            showNotification={showNotification}
           />
         </main>
       </div>
@@ -587,6 +829,14 @@ export default function App() {
           file={activeRenameFile}
           onClose={() => setActiveRenameFile(null)}
           onSubmit={handleRenameItem}
+        />
+      )}
+
+      {/* 2b. Link Upload Modal */}
+      {showLinkUploadModal && (
+        <LinkUploadModal
+          onClose={() => setShowLinkUploadModal(false)}
+          onSubmit={handleUploadFromUrl}
         />
       )}
 

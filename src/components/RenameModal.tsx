@@ -10,23 +10,35 @@ interface RenameModalProps {
 
 export default function RenameModal({ file, onClose, onSubmit }: RenameModalProps) {
   // If it's a file, we pre-fill the name excluding the extension for a better user experience
-  const ext = file.type === 'file' ? file.name.substring(file.name.lastIndexOf('.')) : '';
-  const baseName = file.type === 'file' && file.name.includes('.') 
+  const hasDot = file.type === 'file' && file.name.includes('.') && file.name.lastIndexOf('.') > 0;
+  const ext = file.type === 'file' && hasDot ? file.name.substring(file.name.lastIndexOf('.')) : '';
+  const baseName = file.type === 'file' && hasDot 
     ? file.name.substring(0, file.name.lastIndexOf('.')) 
     : file.name;
 
   const [name, setName] = useState(baseName);
+  const [newExt, setNewExt] = useState(ext ? ext.substring(1) : '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
       setError('নাম খালি রাখা যাবে না!');
       return;
     }
 
-    if (name.trim() === baseName) {
+    // Determine final target filename
+    let finalName = trimmedName;
+    if (file.type === 'file') {
+      const cleanedExt = newExt.trim().replace(/^\.+/, ''); // strip any leading dots
+      if (cleanedExt) {
+        finalName = `${trimmedName}.${cleanedExt}`;
+      }
+    }
+
+    if (finalName === file.name) {
       onClose(); // No change made
       return;
     }
@@ -34,13 +46,6 @@ export default function RenameModal({ file, onClose, onSubmit }: RenameModalProp
     setLoading(true);
     setError('');
     try {
-      // Send the new name (re-appending extension for files if not already typed by user)
-      let finalName = name.trim();
-      if (file.type === 'file' && ext) {
-        if (!finalName.endsWith(ext)) {
-          finalName = `${finalName}${ext}`;
-        }
-      }
       await onSubmit(finalName);
       onClose();
     } catch (err: any) {
@@ -89,9 +94,18 @@ export default function RenameModal({ file, onClose, onSubmit }: RenameModalProp
                   disabled={loading}
                 />
                 {file.type === 'file' && ext && (
-                  <span className="px-3 py-1 bg-slate-200 text-slate-500 font-mono text-xs font-bold border-l border-slate-200 select-none">
-                    {ext}
-                  </span>
+                  <div className="flex items-center bg-slate-100/80 border-l border-slate-200 h-full">
+                    <span className="pl-3 pr-0.5 text-slate-400 font-mono text-xs font-bold select-none">.</span>
+                    <input
+                      type="text"
+                      value={newExt}
+                      onChange={(e) => setNewExt(e.target.value)}
+                      placeholder="ext"
+                      className="w-16 px-1 py-2.5 bg-transparent border-none text-xs font-bold font-mono focus:outline-none text-blue-600 focus:bg-white"
+                      disabled={loading}
+                      title="ফাইলের এক্সটেনশন"
+                    />
+                  </div>
                 )}
               </div>
             </div>
