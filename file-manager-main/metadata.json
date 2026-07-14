@@ -1,0 +1,6 @@
+{
+  "name": "File Manager",
+  "description": "একটি আধুনিক এবং দৃষ্টিনন্দন ফাইল ম্যানেজার যেখানে ফাইল আপলোড, ফোল্ডার তৈরি, কপি-কাট-পেস্ট, রিনেম ও ডিলিট করা যাবে।",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
