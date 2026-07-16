@@ -196,15 +196,23 @@ export default function FileList({
               const isSelected = selectedItems.some(item => item.path === file.path);
               const isImg = file.type === 'file' && getFileTypeCategory(file.name) === 'image';
               const isCutSource = clipboard.action === 'cut' && clipboard.sources.some(src => src.path === file.path);
+              const isAnyMenuOpen = activeMenuId !== null;
+              const isThisMenuOpen = activeMenuId === file.path;
 
               return (
                 <div
                   key={file.path}
                   onClick={() => handleItemClick(file)}
-                  className={`group relative rounded-xl border p-4 flex flex-col justify-between items-center text-center cursor-pointer transition-all duration-200 select-none bg-white hover:shadow-md hover:-translate-y-0.5 ${
+                  className={`relative rounded-xl border p-4 flex flex-col justify-between items-center text-center cursor-pointer transition-all duration-200 select-none bg-white ${
+                    (!isAnyMenuOpen || isThisMenuOpen) ? 'group' : ''
+                  } ${
+                    !isAnyMenuOpen ? 'hover:shadow-md hover:-translate-y-0.5 hover:border-slate-200' : ''
+                  } ${
+                    isThisMenuOpen ? 'z-30 shadow-md -translate-y-0.5 border-slate-200 ring-1 ring-blue-500/30' : 'z-0 border-slate-100'
+                  } ${
                     isSelected 
                       ? 'border-blue-500 ring-1 ring-blue-500/50 bg-blue-50/10' 
-                      : 'border-slate-100 hover:border-slate-200'
+                      : ''
                   } ${isCutSource ? 'opacity-40' : ''}`}
                 >
                   {/* Item Selection Checkbox (always visible if selected, otherwise appears on hover) */}
@@ -345,12 +353,18 @@ export default function FileList({
                   const isSelected = selectedItems.some(item => item.path === file.path);
                   const isImg = file.type === 'file' && getFileTypeCategory(file.name) === 'image';
                   const isCutSource = clipboard.action === 'cut' && clipboard.sources.some(src => src.path === file.path);
+                  const isAnyMenuOpen = activeMenuId !== null;
+                  const isThisMenuOpen = activeMenuId === file.path;
 
                   return (
                     <tr
                       key={file.path}
                       onClick={() => handleItemClick(file)}
-                      className={`hover:bg-slate-50/50 cursor-pointer transition-colors ${
+                      className={`cursor-pointer transition-colors ${
+                        !isAnyMenuOpen ? 'hover:bg-slate-50/50' : ''
+                      } ${
+                        isThisMenuOpen ? 'bg-slate-50/80' : ''
+                      } ${
                         isSelected ? 'bg-blue-50/20' : ''
                       } ${isCutSource ? 'opacity-40' : ''}`}
                     >
@@ -404,7 +418,7 @@ export default function FileList({
                       </td>
 
                       {/* 3-dot Menu Actions Column */}
-                      <td className="py-3 px-4 text-center relative" onClick={(e) => e.stopPropagation()}>
+                      <td className={`py-3 px-4 text-center relative ${isThisMenuOpen ? 'z-30' : 'z-0'}`} onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={(e) => handleMenuClick(e, file.path)}
                           className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
